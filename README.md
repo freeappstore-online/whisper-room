@@ -1,4 +1,4 @@
-# whisper-room
+# Whisper Room 📡
 
 A free, serverless P2P chat app — no accounts, no message storage, no tracking.
 
@@ -11,7 +11,7 @@ Enter a display name and a room name. Anyone who types the same room name connec
 - Peer-to-peer via WebRTC — no relay server
 - No account required
 - Messages are never stored
-- Works on local networks
+- Works on local networks (LAN)
 - File sharing between peers
 - Dark / light theme toggle
 - iOS phone-frame UI on desktop (≥720px)
