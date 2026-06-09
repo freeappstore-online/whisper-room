@@ -2,14 +2,26 @@
   "name": "whisper-room",
   "private": true,
   "packageManager": "pnpm@10.30.3",
-  "engines": { "node": ">=22" },
-  "pnpm": { "onlyBuiltDependencies": ["esbuild"] },
-  "repository": { "type": "git", "url": "git+https://github.com/freeappstore-online/whisper-room.git" },
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freeappstore-online/whisper-room.git"
+  },
   "scripts": {
     "dev": "pnpm --filter @whisper-room/web dev",
     "build": "pnpm --filter @whisper-room/web build",
     "preview": "pnpm --filter @whisper-room/web preview",
     "typecheck": "pnpm --filter @whisper-room/web exec tsc -b",
     "test": "pnpm --filter @whisper-room/web exec tsc -b"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
   }
 }

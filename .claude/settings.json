@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm show *)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(pnpm typecheck *)",
+      "Bash(npx fas *)",
+      "Bash(pnpm add *)"
+    ]
+  }
+}
