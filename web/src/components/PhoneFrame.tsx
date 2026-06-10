@@ -28,7 +28,7 @@ export function PhoneFrame({ children, dark }: Props) {
       {/* outer bezel */}
       <div style={{
         width: 375, height: frameH,
-        background: bezel, borderRadius: 50, padding: 10,
+        background: bezel, borderRadius: 50, padding: 6,
         boxShadow: '0 40px 100px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.08)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
@@ -51,7 +51,7 @@ export function PhoneFrame({ children, dark }: Props) {
             <div style={{
               position: 'absolute', left: '50%', top: 10,
               transform: 'translateX(-50%)',
-              width: 120, height: 34, background: '#000', borderRadius: 20,
+              width: 120, height: 23, background: '#000', borderRadius: 20,
             }} />
 
             {/* signal + battery */}

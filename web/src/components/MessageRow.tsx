@@ -4,51 +4,86 @@ import { peerColor } from '../utils/peers'
 import { themeTokens } from '../utils/theme'
 import { FileOffer } from './FileOffer'
 
-interface Props { msg: LocalMsg; myName: string; dark: boolean }
+interface Props {
+  msg: LocalMsg
+  myName: string
+  dark: boolean
+  blobUrl?: string
+}
 
-export function MessageRow({ msg, myName, dark }: Props) {
-  const { green, muted, textC } = themeTokens(dark)
+export function MessageRow({ msg, myName, dark, blobUrl }: Props) {
+  const { green, muted, border, textC } = themeTokens(dark)
+  const isMine = msg.from === myName
 
+  // system message — centered italic line
   if (msg.isSystem) {
     return (
       <div style={{
-        display: 'flex', alignItems: 'baseline',
-        padding: '2px 0', fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6,
+        textAlign: 'center', padding: '6px 0',
+        fontFamily: 'monospace', fontSize: 11,
+        color: muted, fontStyle: 'italic',
       }}>
-        <span style={{ minWidth: 44, flexShrink: 0, color: muted, fontSize: 11 }}>
-          {fmt(msg.ts)}
-        </span>
-        <span style={{ color: muted, fontStyle: 'italic', fontSize: 12 }}>
-          · {msg.text}
-        </span>
+        · {msg.text} ·
       </div>
     )
   }
 
-  const nameColor = msg.from === myName ? green : peerColor(msg.from, dark)
+  const bubbleBg = isMine
+    ? green
+    : (dark ? 'rgba(78,255,145,0.1)' : 'rgba(0,122,31,0.07)')
+
+  const bubbleText = isMine
+    ? (dark ? '#0a0a0a' : '#ffffff')
+    : textC
+
+  // cut the inner corner (iMessage-style)
+  const bubbleRadius = isMine ? '18px 18px 4px 18px' : '18px 18px 18px 4px'
+
+  const nameColor = peerColor(msg.from, dark)
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'flex-start',
-      padding: '2px 0', fontFamily: 'monospace', fontSize: 13, lineHeight: 1.6,
+      display: 'flex', flexDirection: 'column',
+      alignItems: isMine ? 'flex-end' : 'flex-start',
+      padding: '3px 0',
     }}>
-      <span style={{ minWidth: 44, flexShrink: 0, color: muted, fontSize: 11, paddingTop: 1 }}>
-        {fmt(msg.ts)}
-      </span>
-      <span style={{
-        minWidth: 96, maxWidth: 96, flexShrink: 0, marginRight: 12,
-        color: nameColor, fontWeight: 600,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-      }}>
-        {msg.from}
-      </span>
-      {msg.file ? (
-        <FileOffer file={msg.file} isMine={msg.from === myName} dark={dark} />
-      ) : (
-        <span style={{ color: textC, flex: 1, wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>
-          {msg.text}
+      {/* sender name — only for received messages */}
+      {!isMine && (
+        <span style={{
+          fontSize: 11, fontFamily: 'monospace', fontWeight: 600,
+          color: nameColor, marginBottom: 3, marginLeft: 4,
+        }}>
+          {msg.from}
         </span>
       )}
+
+      {/* bubble */}
+      <div style={{
+        maxWidth: '75%',
+        background: bubbleBg,
+        color: bubbleText,
+        borderRadius: bubbleRadius,
+        padding: msg.file ? '10px 12px' : '8px 14px',
+        border: isMine ? 'none' : `1px solid ${border}`,
+        fontFamily: 'monospace', fontSize: 13, lineHeight: 1.5,
+        wordBreak: 'break-word', whiteSpace: msg.file ? undefined : 'pre-wrap',
+      }}>
+        {msg.file ? (
+          <FileOffer file={msg.file} isMine={isMine} dark={dark} blobUrl={blobUrl} />
+        ) : (
+          msg.text
+        )}
+      </div>
+
+      {/* timestamp below bubble */}
+      <span style={{
+        fontSize: 10, fontFamily: 'monospace',
+        color: muted, marginTop: 3,
+        marginLeft: isMine ? 0 : 4,
+        marginRight: isMine ? 4 : 0,
+      }}>
+        {fmt(msg.ts)}
+      </span>
     </div>
   )
 }

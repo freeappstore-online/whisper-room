@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { joinRoom, selfId } from '@trystero-p2p/torrent'
-import type { Action, HelloPayload, TextPayload, FilePayload, LocalMsg } from '../types'
+import type { Action, HelloPayload, TextPayload, FilePayload, FileDataPayload, LocalMsg } from '../types'
 import { peerColor } from '../utils/peers'
 import { themeTokens } from '../utils/theme'
 import { MessageRow } from './MessageRow'
+import { QRModal } from './QRModal'
 
 interface Props {
   myName: string
@@ -17,11 +18,17 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   const [messages,    setMessages]    = useState<LocalMsg[]>([])
   const [input,       setInput]       = useState('')
   const [peerDisplay, setPeerDisplay] = useState<string[]>([])
-  const peerNamesRef  = useRef<Map<string, string>>(new Map())
-  const msgActionRef  = useRef<Action<TextPayload>  | null>(null)
-  const fileActionRef = useRef<Action<FilePayload>  | null>(null)
-  const bottomRef     = useRef<HTMLDivElement>(null)
-  const joinedRef     = useRef(false)
+  const [readyFiles,  setReadyFiles]  = useState<Record<string, string>>({})
+  const [showQR,      setShowQR]      = useState(false)
+
+  const peerNamesRef    = useRef<Map<string, string>>(new Map())
+  const msgActionRef    = useRef<Action<TextPayload>    | null>(null)
+  const fileActionRef   = useRef<Action<FilePayload>    | null>(null)
+  const fileDataActionRef = useRef<Action<FileDataPayload> | null>(null)
+  const fileInputRef    = useRef<HTMLInputElement>(null)
+  const blobUrlsRef     = useRef<string[]>([])
+  const bottomRef       = useRef<HTMLDivElement>(null)
+  const joinedRef       = useRef(false)
 
   const { green, muted, border, textC } = themeTokens(dark)
   const onlineCount = peerDisplay.length + 1
@@ -30,19 +37,19 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
     if (joinedRef.current) return
     joinedRef.current = true
 
-    const room  = joinRoom({ appId: 'whisper-room' }, roomId)
-    const hello = room.makeAction('hello') as unknown as Action<HelloPayload>
-    const msg   = room.makeAction('msg')   as unknown as Action<TextPayload>
-    const file  = room.makeAction('file')  as unknown as Action<FilePayload>
+    const room     = joinRoom({ appId: 'whisper-room' }, roomId)
+    const hello    = room.makeAction('hello')    as unknown as Action<HelloPayload>
+    const msg      = room.makeAction('msg')      as unknown as Action<TextPayload>
+    const file     = room.makeAction('file')     as unknown as Action<FilePayload>
+    const fileData = room.makeAction('fileData') as unknown as Action<FileDataPayload>
 
-    msgActionRef.current  = msg
-    fileActionRef.current = file
+    msgActionRef.current      = msg
+    fileActionRef.current     = file
+    fileDataActionRef.current = fileData
 
     setMessages([{ id: 'sys-self', from: '', text: `joined #${roomId}`, ts: Date.now(), isSystem: true }])
 
-    room.onPeerJoin = peerId => {
-      hello.send({ displayName: myName }, { target: peerId })
-    }
+    room.onPeerJoin = peerId => hello.send({ displayName: myName }, { target: peerId })
 
     room.onPeerLeave = peerId => {
       const name = peerNamesRef.current.get(peerId) ?? peerId.slice(0, 8)
@@ -77,7 +84,17 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
       }])
     }
 
-    return () => { room.leave() }
+    fileData.onMessage = ({ id, data, mimeType }) => {
+      const blob = new Blob([data], { type: mimeType })
+      const url  = URL.createObjectURL(blob)
+      blobUrlsRef.current.push(url)
+      setReadyFiles(prev => ({ ...prev, [id]: url }))
+    }
+
+    return () => {
+      room.leave()
+      blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
+    }
   }, [roomId, myName])
 
   useEffect(() => {
@@ -92,10 +109,22 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
     setInput('')
   }
 
-  function sendFile() {
-    const f = { id: `f${Date.now()}`, name: 'screenshot.png', size: 820_000 }
-    fileActionRef.current?.send({ displayName: myName, file: f })
-    setMessages(ms => [...ms, { id: `local-file-${Date.now()}`, from: myName, text: '', ts: Date.now(), file: f }])
+  async function sendFile(f: File) {
+    const id       = `f${Date.now()}`
+    const mimeType = f.type || 'application/octet-stream'
+    const fileInfo = { id, name: f.name, size: f.size, mimeType }
+    const data     = await f.arrayBuffer()
+
+    // Send metadata + raw data to peers
+    await fileActionRef.current?.send({ displayName: myName, file: fileInfo })
+    await fileDataActionRef.current?.send({ id, data, mimeType })
+
+    // Sender gets local preview immediately
+    const blob = new Blob([data], { type: mimeType })
+    const url  = URL.createObjectURL(blob)
+    blobUrlsRef.current.push(url)
+    setReadyFiles(prev => ({ ...prev, [id]: url }))
+    setMessages(ms => [...ms, { id: `local-file-${Date.now()}`, from: myName, text: '', ts: Date.now(), file: fileInfo }])
   }
 
   return (
@@ -118,6 +147,11 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           </span>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={() => setShowQR(true)} title="Share room QR" style={{
+            padding: '4px 8px', cursor: 'pointer', background: 'transparent',
+            border: `1px solid ${border}`, borderRadius: 2, color: muted,
+            fontFamily: 'monospace', fontSize: 13, lineHeight: 1,
+          }}>⊞</button>
           <button onClick={onToggleTheme} title="Toggle theme" style={{
             padding: '4px 8px', cursor: 'pointer', background: 'transparent',
             border: `1px solid ${border}`, borderRadius: 2, color: muted,
@@ -152,20 +186,37 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
         flex: 1, overflowY: 'auto', padding: '12px 16px',
         display: 'flex', flexDirection: 'column',
       }}>
-        {messages.map(m => <MessageRow key={m.id} msg={m} myName={myName} dark={dark} />)}
+        {messages.map(m => (
+          <MessageRow
+            key={m.id} msg={m} myName={myName} dark={dark}
+            blobUrl={m.file ? readyFiles[m.file.id] : undefined}
+          />
+        ))}
         <div ref={bottomRef} />
       </div>
 
-      {/* input */}
+      {/* input bar */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '10px 16px',
         paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
         borderTop: `1px solid ${border}`,
       }}>
-        <button onClick={sendFile} title="Send file" style={{
+        {/* hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="*/*"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const f = e.target.files?.[0]
+            if (f) sendFile(f)
+            e.target.value = ''
+          }}
+        />
+        <button onClick={() => fileInputRef.current?.click()} title="Send file" style={{
           flexShrink: 0, background: 'transparent', border: 'none',
-          color: muted, fontSize: 16, cursor: 'pointer', padding: '4px', lineHeight: 1,
+          color: muted, fontSize: 18, cursor: 'pointer', padding: '4px', lineHeight: 1,
         }}>📎</button>
 
         <span style={{ color: green, fontSize: 13, flexShrink: 0 }}>▸</span>
@@ -179,7 +230,7 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           style={{
             flex: 1, background: 'transparent', border: 'none',
             color: textC, caretColor: green,
-            fontFamily: 'monospace', fontSize: 13,
+            fontFamily: 'monospace',
             outline: 'none', padding: '4px 0',
           }}
         />
@@ -198,6 +249,8 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           }}
         >send</button>
       </div>
+
+      {showQR && <QRModal roomId={roomId} dark={dark} onClose={() => setShowQR(false)} />}
     </div>
   )
 }

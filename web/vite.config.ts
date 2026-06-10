@@ -39,9 +39,9 @@ export default defineConfig({
         ],
       },
       manifest: {
-        name: 'whisper-room',
-        short_name: 'whisper-room',
-        description: 'Free whisper-room app — part of FreeAppStore',
+        name: 'Whisper room',
+        short_name: 'whisper room',
+        description: 'Free whisper room app — part of FreeAppStore',
         start_url: '/',
         display: 'standalone',
         background_color: '#ffffff',

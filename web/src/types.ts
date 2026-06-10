@@ -6,6 +6,13 @@ export interface FileInfo {
   id: string
   name: string
   size: number
+  mimeType?: string
+}
+
+export interface FileDataPayload {
+  id: string
+  data: ArrayBuffer
+  mimeType: string
 }
 
 export interface LocalMsg {

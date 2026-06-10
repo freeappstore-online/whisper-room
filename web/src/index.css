@@ -159,6 +159,9 @@ body::after {
   isolation: isolate;
 }
 
+/* Prevent iOS Safari auto-zoom on input focus (requires font-size ≥ 16px) */
+input, textarea, select { font-size: 16px !important; }
+
 button, a, nav, [role="button"], label {
   -webkit-user-select: none;
   user-select: none;

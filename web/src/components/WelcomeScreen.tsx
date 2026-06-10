@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { LS_NAME_KEY } from '../utils/peers'
 import { themeTokens } from '../utils/theme'
+import { QRScanner } from './QRScanner'
 
 const FEATURES = [
-  'peer-to-peer via WebRTC',
-  'no account required',
-  'messages not stored',
-  'works on local network',
+  'no sign-up — just pick a name and go',
+  'chat disappears when you leave',
+  'no one can read your messages but the room',
+  'works on Wi-Fi without internet',
 ]
 
 interface Props {
@@ -17,7 +18,8 @@ interface Props {
 
 export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
   const [name, setName] = useState(localStorage.getItem(LS_NAME_KEY) ?? '')
-  const [room, setRoom] = useState('')
+  const [room, setRoom] = useState(() => new URLSearchParams(location.search).get('room') ?? '')
+  const [showScanner, setShowScanner] = useState(false)
   const canJoin = name.trim() && room.trim()
 
   const { green, muted, border, textC } = themeTokens(dark)
@@ -26,7 +28,7 @@ export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
     background: 'transparent', border: 'none',
     borderBottom: `1px solid ${border}`,
     color: textC, caretColor: green,
-    fontFamily: 'monospace', fontSize: 13,
+    fontFamily: 'monospace',
     outline: 'none', padding: '6px 0',
     width: '100%', letterSpacing: '0.02em',
   }
@@ -91,29 +93,52 @@ export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
 
           {/* form */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {([['name', 'your display name', name, setName, false],
-               ['room', 'e.g. office, team-a', room, setRoom, true]] as const).map(
-              ([label, placeholder, value, setter, isRoom]) => (
-                <div key={label}>
-                  <div style={{
-                    fontSize: 9, color: green, letterSpacing: '0.18em',
-                    textTransform: 'uppercase', marginBottom: 8, fontWeight: 600,
-                  }}>{label}</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ color: green, fontSize: 12, flexShrink: 0 }}>▸</span>
-                    <input
-                      className="bc-input"
-                      value={value}
-                      onChange={e => setter(e.target.value)}
-                      onKeyDown={isRoom ? e => e.key === 'Enter' && submit() : undefined}
-                      placeholder={placeholder}
-                      autoFocus={!isRoom}
-                      style={fieldStyle}
-                    />
-                  </div>
-                </div>
-              )
-            )}
+            <div>
+              <div style={{
+                fontSize: 10, color: green, letterSpacing: '0.18em',
+                textTransform: 'uppercase', marginBottom: 8, fontWeight: 600,
+              }}>name</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ color: green, fontSize: 12, flexShrink: 0 }}>▸</span>
+                <input
+                  className="bc-input"
+                  value={name}
+                  onChange={e => setName(e.target.value)}
+                  placeholder="your display name"
+                  autoFocus
+                  style={fieldStyle}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div style={{
+                fontSize: 10, color: green, letterSpacing: '0.18em',
+                textTransform: 'uppercase', marginBottom: 8, fontWeight: 600,
+              }}>room</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ color: green, fontSize: 12, flexShrink: 0 }}>▸</span>
+                <input
+                  className="bc-input"
+                  value={room}
+                  onChange={e => setRoom(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && submit()}
+                  placeholder="e.g. freeappstore, team-a"
+                  style={fieldStyle}
+                />
+                <button
+                  onClick={() => setShowScanner(true)}
+                  title="Scan QR to join"
+                  style={{
+                    flexShrink: 0, background: 'transparent',
+                    border: `1px solid ${border}`,
+                    borderRadius: 4, cursor: 'pointer',
+                    color: muted, fontSize: 16,
+                    padding: '4px 6px', lineHeight: 1,
+                  }}
+                >⛶</button>
+              </div>
+            </div>
 
             <button
               onClick={submit}
@@ -128,7 +153,7 @@ export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
                 cursor: canJoin ? 'pointer' : 'default', transition: 'all 0.15s',
               }}
             >
-              join room →
+              Join room →
             </button>
           </div>
 
@@ -148,6 +173,14 @@ export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
 
         </div>
       </div>
+
+      {showScanner && (
+        <QRScanner
+          dark={dark}
+          onScan={roomId => { setRoom(roomId); setShowScanner(false) }}
+          onClose={() => setShowScanner(false)}
+        />
+      )}
     </div>
   )
 }

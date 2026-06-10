@@ -1,73 +1,83 @@
-import { useState } from 'react'
 import type { FileInfo } from '../types'
 import { fmtSize } from '../utils/format'
-import { themeTokens } from '../utils/theme'
 
-function btnStyle(g: string, dark: boolean, filled: boolean): React.CSSProperties {
-  return {
-    padding: '3px 10px', borderRadius: 2, cursor: 'pointer', fontSize: 11, letterSpacing: '0.05em',
-    fontFamily: 'monospace', fontWeight: 500,
-    background: filled ? g : 'transparent',
-    color:      filled ? (dark ? '#0a0a0a' : '#fff') : (dark ? 'rgba(78,255,145,0.5)' : 'rgba(0,122,31,0.5)'),
-    border:     `1px solid ${filled ? g : (dark ? 'rgba(78,255,145,0.2)' : 'rgba(0,122,31,0.2)')}`,
-    transition: 'all 0.12s',
-  }
+interface Props {
+  file: FileInfo
+  isMine: boolean
+  dark: boolean
+  blobUrl?: string
 }
 
-interface Props { file: FileInfo; isMine: boolean; dark: boolean }
+const ICON: Record<string, string> = {
+  'image': '🖼',
+  'video': '🎬',
+  'audio': '🎵',
+  'application/pdf': '📄',
+}
 
-export function FileOffer({ file, isMine, dark }: Props) {
-  const [phase, setPhase] = useState<'idle' | 'progress' | 'done'>('idle')
-  const [pct, setPct]     = useState(0)
+function fileIcon(mimeType?: string) {
+  if (!mimeType) return '📎'
+  const cat = mimeType.split('/')[0]
+  return ICON[mimeType] ?? ICON[cat] ?? '📎'
+}
 
-  const { green: g, textC } = themeTokens(dark)
-  const fileBorder = dark ? 'rgba(78,255,145,0.18)' : 'rgba(0,122,31,0.15)'
+function download(url: string, name: string) {
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+}
 
-  function accept() {
-    setPhase('progress')
-    let p = 0
-    const iv = setInterval(() => {
-      p += Math.random() * 18 + 5
-      if (p >= 100) { p = 100; clearInterval(iv); setPhase('done') }
-      setPct(Math.min(p, 100))
-    }, 120)
-  }
+export function FileOffer({ file, isMine, dark, blobUrl }: Props) {
+  const isImage   = !!file.mimeType?.startsWith('image/')
+  const textMuted = isMine
+    ? (dark ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.7)')
+    : (dark ? 'rgba(78,255,145,0.45)' : 'rgba(0,122,31,0.5)')
 
   return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 6, marginTop: 2 }}>
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 8,
-        border: `1px solid ${fileBorder}`, borderRadius: 3, padding: '4px 10px',
-        fontFamily: 'monospace', fontSize: 12, color: textC,
-      }}>
-        <span style={{ color: g }}>📎</span>
-        <span>{file.name}</span>
-        <span style={{ color: dark ? 'rgba(78,255,145,0.4)' : 'rgba(0,122,31,0.5)', fontSize: 11 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {/* image preview */}
+      {isImage && blobUrl && (
+        <img
+          src={blobUrl}
+          alt={file.name}
+          style={{ maxWidth: 220, borderRadius: 8, display: 'block' }}
+        />
+      )}
+
+      {/* file info row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+        <span>{fileIcon(file.mimeType)}</span>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {file.name}
+        </span>
+        <span style={{ color: textMuted, flexShrink: 0, fontSize: 11 }}>
           {fmtSize(file.size)}
         </span>
-      </span>
+      </div>
 
-      {phase === 'done' ? (
-        <span><button style={btnStyle(g, dark, true)}>↓ download</button></span>
-      ) : phase === 'progress' ? (
-        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, minWidth: 160 }}>
-          <span style={{ display: 'block', height: 3, background: fileBorder, borderRadius: 2, overflow: 'hidden' }}>
-            <span style={{ display: 'block', height: '100%', background: g, width: `${pct}%`, transition: 'width 0.1s' }} />
-          </span>
-          <span style={{ fontSize: 10, color: dark ? 'rgba(78,255,145,0.5)' : 'rgba(0,122,31,0.5)' }}>
-            {Math.round(pct)}%
-          </span>
-        </span>
+      {/* action */}
+      {blobUrl ? (
+        <button
+          onClick={() => download(blobUrl, file.name)}
+          style={{
+            alignSelf: 'flex-start',
+            padding: '4px 12px', borderRadius: 6, cursor: 'pointer',
+            fontSize: 11, fontFamily: 'monospace', fontWeight: 600,
+            background: isMine
+              ? (dark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)')
+              : (dark ? 'rgba(78,255,145,0.15)' : 'rgba(0,122,31,0.1)'),
+            color: isMine
+              ? (dark ? '#0a0a0a' : '#fff')
+              : (dark ? '#4eff91' : '#007a1f'),
+            border: 'none',
+          }}
+        >
+          ↓ download
+        </button>
       ) : !isMine ? (
-        <span style={{ display: 'inline-flex', gap: 6 }}>
-          <button onClick={accept} style={btnStyle(g, dark, true)}>accept</button>
-          <button style={btnStyle(g, dark, false)}>decline</button>
-        </span>
-      ) : (
-        <span style={{ fontSize: 11, color: dark ? 'rgba(78,255,145,0.35)' : 'rgba(0,122,31,0.4)' }}>
-          waiting for acceptance…
-        </span>
-      )}
-    </span>
+        <span style={{ fontSize: 11, color: textMuted }}>receiving···</span>
+      ) : null}
+    </div>
   )
 }
