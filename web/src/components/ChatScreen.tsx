@@ -322,6 +322,32 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
               blobUrl={m.file ? readyFiles[m.file.id] : undefined}
             />
           ))}
+
+          {/* waiting for peers — fills remaining space below messages */}
+          {peerDisplay.length === 0 && (
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+              gap: 10, minHeight: 100,
+            }}>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[0, 1, 2].map(i => (
+                  <span key={i} className="ws-pulse" style={{
+                    width: 6, height: 6, borderRadius: '50%',
+                    background: muted, display: 'inline-block',
+                    animationDelay: `${i * 0.22}s`,
+                  }} />
+                ))}
+              </div>
+              <span style={{ fontSize: 11, color: muted, fontFamily: 'monospace', opacity: 0.7 }}>
+                waiting for peers…
+              </span>
+              <span style={{ fontSize: 10, color: muted, fontFamily: 'monospace', opacity: 0.4, textAlign: 'center', lineHeight: 1.7 }}>
+                share #{roomId}<br />or tap ⊞ for QR
+              </span>
+            </div>
+          )}
+
           <div ref={bottomRef} />
         </div>
       )}
