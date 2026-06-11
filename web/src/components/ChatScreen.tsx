@@ -33,23 +33,54 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   const { green, muted, border, textC } = themeTokens(dark)
   const onlineCount = peerDisplay.length + 1
 
-  // Probe tracker reachability — show warning if blocked (common on public WiFi)
+  // Probe all trackers — only warn when ALL are unreachable (e.g. public WiFi DPI block)
   useEffect(() => {
-    const ws = new WebSocket('wss://tracker.webtorrent.dev')
-    const timer = setTimeout(() => { ws.close(); setTrackerBlocked(true) }, 6000)
-    ws.onopen  = () => { clearTimeout(timer); ws.close() }
-    ws.onerror = () => { clearTimeout(timer); setTrackerBlocked(true) }
-    return () => { clearTimeout(timer); ws.close() }
+    const trackers = [
+      'wss://tracker.webtorrent.dev',
+      'wss://tracker.openwebtorrent.com',
+      'wss://tracker.btorrent.xyz',
+    ]
+    let failed = 0
+    let mounted = true
+    const timers: ReturnType<typeof setTimeout>[] = []
+    const sockets: WebSocket[] = []
+
+    trackers.forEach(url => {
+      const ws = new WebSocket(url)
+      sockets.push(ws)
+      const tick = setTimeout(() => {
+        if (!mounted) return
+        failed++
+        if (failed >= trackers.length) setTrackerBlocked(true)
+      }, 6000)
+      timers.push(tick)
+      ws.onopen  = () => { clearTimeout(tick); ws.close() }
+      ws.onerror = () => {
+        clearTimeout(tick)
+        if (!mounted) return
+        failed++
+        if (failed >= trackers.length) setTrackerBlocked(true)
+      }
+    })
+
+    return () => {
+      mounted = false
+      timers.forEach(clearTimeout)
+      sockets.forEach(ws => { try { ws.close() } catch { /* ignore */ } })
+    }
   }, [])
 
   useEffect(() => {
     const room = joinRoom({
       appId: 'whisper-room',
-      trackerUrls: [
-        'wss://tracker.webtorrent.dev',
-        'wss://tracker.btorrent.xyz',
-        'wss://tracker.openwebtorrent.com',
-      ],
+      // relayConfig.urls bypasses the default 3-of-4 cut — all 3 reliable trackers used
+      relayConfig: {
+        urls: [
+          'wss://tracker.webtorrent.dev',
+          'wss://tracker.openwebtorrent.com',
+          'wss://tracker.btorrent.xyz',
+        ],
+      },
       rtcConfig: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
