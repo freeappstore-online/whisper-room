@@ -15,11 +15,12 @@ interface Props {
 }
 
 export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Props) {
-  const [messages,    setMessages]    = useState<LocalMsg[]>([])
-  const [input,       setInput]       = useState('')
-  const [peerDisplay, setPeerDisplay] = useState<string[]>([])
-  const [readyFiles,  setReadyFiles]  = useState<Record<string, string>>({})
-  const [showQR,      setShowQR]      = useState(false)
+  const [messages,       setMessages]       = useState<LocalMsg[]>([])
+  const [input,          setInput]          = useState('')
+  const [peerDisplay,    setPeerDisplay]    = useState<string[]>([])
+  const [readyFiles,     setReadyFiles]     = useState<Record<string, string>>({})
+  const [showQR,         setShowQR]         = useState(false)
+  const [trackerBlocked, setTrackerBlocked] = useState(false)
 
   const peerNamesRef    = useRef<Map<string, string>>(new Map())
   const msgActionRef    = useRef<Action<TextPayload>    | null>(null)
@@ -28,16 +29,37 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   const fileInputRef    = useRef<HTMLInputElement>(null)
   const blobUrlsRef     = useRef<string[]>([])
   const bottomRef       = useRef<HTMLDivElement>(null)
-  const joinedRef       = useRef(false)
 
   const { green, muted, border, textC } = themeTokens(dark)
   const onlineCount = peerDisplay.length + 1
 
+  // Probe tracker reachability — show warning if blocked (common on public WiFi)
   useEffect(() => {
-    if (joinedRef.current) return
-    joinedRef.current = true
+    const ws = new WebSocket('wss://tracker.webtorrent.dev')
+    const timer = setTimeout(() => { ws.close(); setTrackerBlocked(true) }, 6000)
+    ws.onopen  = () => { clearTimeout(timer); ws.close() }
+    ws.onerror = () => { clearTimeout(timer); setTrackerBlocked(true) }
+    return () => { clearTimeout(timer); ws.close() }
+  }, [])
 
-    const room     = joinRoom({ appId: 'whisper-room' }, roomId)
+  useEffect(() => {
+    const room = joinRoom({
+      appId: 'whisper-room',
+      trackerUrls: [
+        'wss://tracker.webtorrent.dev',
+        'wss://tracker.btorrent.xyz',
+        'wss://tracker.openwebtorrent.com',
+      ],
+      rtcConfig: {
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          // TURN relays WebRTC through TCP 443 — works on stricter networks
+          { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject', credential: 'openrelayproject' },
+        ],
+      },
+    }, roomId)
     const hello    = room.makeAction('hello')    as unknown as Action<HelloPayload>
     const msg      = room.makeAction('msg')      as unknown as Action<TextPayload>
     const file     = room.makeAction('file')     as unknown as Action<FilePayload>
@@ -92,8 +114,13 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
     }
 
     return () => {
-      room.leave()
+      msgActionRef.current      = null
+      fileActionRef.current     = null
+      fileDataActionRef.current = null
       blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
+      blobUrlsRef.current = []
+      peerNamesRef.current.clear()
+      room.leave()
     }
   }, [roomId, myName])
 
@@ -180,6 +207,27 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           </span>
         ))}
       </div>
+
+      {/* firewall/tracker warning */}
+      {trackerBlocked && (
+        <div style={{
+          padding: '7px 16px', flexShrink: 0,
+          background: dark ? 'rgba(255,122,114,0.1)' : 'rgba(199,79,67,0.08)',
+          borderBottom: `1px solid ${dark ? 'rgba(255,122,114,0.2)' : 'rgba(199,79,67,0.15)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: 8,
+        }}>
+          <span style={{ fontSize: 11, fontFamily: 'monospace', color: dark ? '#ff7a72' : '#c74f43', lineHeight: 1.5 }}>
+            ⚠ tracker blocked — this network may prevent peers from connecting.
+            use a VPN or mobile hotspot.
+          </span>
+          <button
+            onClick={() => setTrackerBlocked(false)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer',
+              color: dark ? '#ff7a72' : '#c74f43', fontSize: 14, lineHeight: 1, flexShrink: 0 }}
+          >✕</button>
+        </div>
+      )}
 
       {/* messages */}
       <div className="bc-scrollbar" style={{
