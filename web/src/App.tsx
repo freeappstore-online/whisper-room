@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTheme } from '@freeappstore/sdk/hooks'
 import type { Session } from './types'
-import { LS_NAME_KEY } from './utils/peers'
+import { LS_NAME_KEY, LS_ROOM_KEY } from './utils/peers'
 import { useIsDesktop } from './hooks/useIsDesktop'
 import { useOnline } from './hooks/useOnline'
 import { WelcomeScreen } from './components/WelcomeScreen'
@@ -52,6 +52,10 @@ export default function App() {
       onToggleTheme={toggleTheme}
       onJoin={(name, room) => {
         localStorage.setItem(LS_NAME_KEY, name)
+        localStorage.setItem(LS_ROOM_KEY, room)
+        const u = new URL(location.href)
+        u.searchParams.set('room', room)
+        history.replaceState(null, '', u.toString())
         setSession({ displayName: name, roomId: room })
       }}
     />

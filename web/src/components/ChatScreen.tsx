@@ -77,89 +77,97 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   }, [])
 
   useEffect(() => {
-    const room = joinRoom({
-      appId: 'whisper-room',
-      relayConfig: {
-        urls: [
-          'wss://tracker.webtorrent.dev',
-          'wss://tracker.openwebtorrent.com',
-          'wss://tracker.btorrent.xyz',
-        ],
-      },
-      // trickleIce: true sends the offer immediately instead of waiting up to 15s for
-      // all ICE candidates — dramatically reduces time-to-connect
-      trickleIce: true,
-      rtcConfig: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          // TURN relays WebRTC through TCP 443 — works on stricter networks
-          { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-            username: 'openrelayproject', credential: 'openrelayproject' },
-        ],
-      },
-    }, roomId)
-    const hello    = room.makeAction('hello')    as unknown as Action<HelloPayload>
-    const msg      = room.makeAction('msg')      as unknown as Action<TextPayload>
-    const file     = room.makeAction('file')     as unknown as Action<FilePayload>
-    const fileData = room.makeAction('fileData') as unknown as Action<FileDataPayload>
+    let room: ReturnType<typeof joinRoom> | null = null
 
-    msgActionRef.current      = msg
-    fileActionRef.current     = file
-    fileDataActionRef.current = fileData
+    // 200ms > Trystero's internal 99ms leave-delay, preventing the race condition
+    // where a fast rejoin receives the still-dying previous room from occupiedRooms.
+    const timer = setTimeout(() => {
+      room = joinRoom({
+        appId: 'whisper-room',
+        relayConfig: {
+          urls: [
+            'wss://tracker.webtorrent.dev',
+            'wss://tracker.openwebtorrent.com',
+            'wss://tracker.btorrent.xyz',
+          ],
+        },
+        // trickleIce: true sends the offer immediately instead of waiting up to 15s for
+        // all ICE candidates — dramatically reduces time-to-connect
+        trickleIce: true,
+        rtcConfig: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            // TURN relays WebRTC through TCP 443 — works on stricter networks
+            { urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+              username: 'openrelayproject', credential: 'openrelayproject' },
+          ],
+        },
+      }, roomId)
 
-    setMessages([{ id: 'sys-self', from: '', text: `joined #${roomId}`, ts: Date.now(), isSystem: true }])
+      const hello    = room.makeAction('hello')    as unknown as Action<HelloPayload>
+      const msg      = room.makeAction('msg')      as unknown as Action<TextPayload>
+      const file     = room.makeAction('file')     as unknown as Action<FilePayload>
+      const fileData = room.makeAction('fileData') as unknown as Action<FileDataPayload>
 
-    room.onPeerJoin = peerId => hello.send({ displayName: myName }, { target: peerId })
+      msgActionRef.current      = msg
+      fileActionRef.current     = file
+      fileDataActionRef.current = fileData
 
-    room.onPeerLeave = peerId => {
-      const name = peerNamesRef.current.get(peerId) ?? peerId.slice(0, 8)
-      peerNamesRef.current.delete(peerId)
-      setPeerDisplay(Array.from(peerNamesRef.current.values()))
-      setMessages(ms => [...ms, {
-        id: `leave-${peerId}-${Date.now()}`, from: '', text: `${name} left`, ts: Date.now(), isSystem: true,
-      }])
-    }
+      setMessages([{ id: 'sys-self', from: '', text: `joined #${roomId}`, ts: Date.now(), isSystem: true }])
 
-    hello.onMessage = ({ displayName }, { peerId }) => {
-      const isNew = !peerNamesRef.current.has(peerId)
-      peerNamesRef.current.set(peerId, displayName)
-      setPeerDisplay(Array.from(peerNamesRef.current.values()))
-      if (isNew) {
+      room.onPeerJoin = peerId => hello.send({ displayName: myName }, { target: peerId })
+
+      room.onPeerLeave = peerId => {
+        const name = peerNamesRef.current.get(peerId) ?? peerId.slice(0, 8)
+        peerNamesRef.current.delete(peerId)
+        setPeerDisplay(Array.from(peerNamesRef.current.values()))
         setMessages(ms => [...ms, {
-          id: `join-${peerId}-${Date.now()}`, from: '', text: `${displayName} joined`, ts: Date.now(), isSystem: true,
+          id: `leave-${peerId}-${Date.now()}`, from: '', text: `${name} left`, ts: Date.now(), isSystem: true,
         }])
-        hello.send({ displayName: myName }, { target: peerId })
       }
-    }
 
-    msg.onMessage = ({ text, displayName }) => {
-      setMessages(ms => [...ms, {
-        id: `msg-${Date.now()}-${Math.random()}`, from: displayName, text, ts: Date.now(),
-      }])
-    }
+      hello.onMessage = ({ displayName }, { peerId }) => {
+        const isNew = !peerNamesRef.current.has(peerId)
+        peerNamesRef.current.set(peerId, displayName)
+        setPeerDisplay(Array.from(peerNamesRef.current.values()))
+        if (isNew) {
+          setMessages(ms => [...ms, {
+            id: `join-${peerId}-${Date.now()}`, from: '', text: `${displayName} joined`, ts: Date.now(), isSystem: true,
+          }])
+          hello.send({ displayName: myName }, { target: peerId })
+        }
+      }
 
-    file.onMessage = ({ file: f, displayName }) => {
-      setMessages(ms => [...ms, {
-        id: `file-${Date.now()}-${Math.random()}`, from: displayName, text: '', ts: Date.now(), file: f,
-      }])
-    }
+      msg.onMessage = ({ text, displayName }) => {
+        setMessages(ms => [...ms, {
+          id: `msg-${Date.now()}-${Math.random()}`, from: displayName, text, ts: Date.now(),
+        }])
+      }
 
-    fileData.onMessage = ({ id, data, mimeType }) => {
-      const blob = new Blob([data], { type: mimeType })
-      const url  = URL.createObjectURL(blob)
-      blobUrlsRef.current.push(url)
-      setReadyFiles(prev => ({ ...prev, [id]: url }))
-    }
+      file.onMessage = ({ file: f, displayName }) => {
+        setMessages(ms => [...ms, {
+          id: `file-${Date.now()}-${Math.random()}`, from: displayName, text: '', ts: Date.now(), file: f,
+        }])
+      }
+
+      fileData.onMessage = ({ id, data, mimeType }) => {
+        const blob = new Blob([data], { type: mimeType })
+        const url  = URL.createObjectURL(blob)
+        blobUrlsRef.current.push(url)
+        setReadyFiles(prev => ({ ...prev, [id]: url }))
+      }
+    }, 200)
 
     return () => {
+      clearTimeout(timer)
       msgActionRef.current      = null
       fileActionRef.current     = null
       fileDataActionRef.current = null
       blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
       blobUrlsRef.current = []
       peerNamesRef.current.clear()
-      room.leave()
+      room?.leave()
     }
   }, [roomId, myName])
 
@@ -280,19 +288,43 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
         </div>
       )}
 
-      {/* messages */}
-      <div className="bc-scrollbar" style={{
-        flex: 1, overflowY: 'auto', padding: '12px 16px',
-        display: 'flex', flexDirection: 'column',
-      }}>
-        {messages.map(m => (
-          <MessageRow
-            key={m.id} msg={m} myName={myName} dark={dark}
-            blobUrl={m.file ? readyFiles[m.file.id] : undefined}
-          />
-        ))}
-        <div ref={bottomRef} />
-      </div>
+      {/* messages / connecting state */}
+      {connState === 'connecting' ? (
+        <div style={{
+          flex: 1, display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          gap: 14, padding: '24px 20px',
+        }}>
+          <div style={{ display: 'flex', gap: 7, marginBottom: 2 }}>
+            {[0, 1, 2].map(i => (
+              <span key={i} className="ws-pulse" style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: green, display: 'inline-block',
+                animationDelay: `${i * 0.22}s`,
+              }} />
+            ))}
+          </div>
+          <span style={{ fontSize: 13, color: muted, fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+            connecting to #{roomId}…
+          </span>
+          <span style={{ fontSize: 11, color: muted, opacity: 0.5, fontFamily: 'monospace', textAlign: 'center', lineHeight: 1.7 }}>
+            establishing peer network<br />takes a few seconds
+          </span>
+        </div>
+      ) : (
+        <div className="bc-scrollbar" style={{
+          flex: 1, overflowY: 'auto', padding: '12px 16px',
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {messages.map(m => (
+            <MessageRow
+              key={m.id} msg={m} myName={myName} dark={dark}
+              blobUrl={m.file ? readyFiles[m.file.id] : undefined}
+            />
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      )}
 
       {/* input bar */}
       <div style={{

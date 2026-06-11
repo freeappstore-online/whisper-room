@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { LS_NAME_KEY } from '../utils/peers'
+import { LS_NAME_KEY, LS_ROOM_KEY } from '../utils/peers'
 import { themeTokens } from '../utils/theme'
 import { QRScanner } from './QRScanner'
 
@@ -18,7 +18,9 @@ interface Props {
 
 export function WelcomeScreen({ dark, onToggleTheme, onJoin }: Props) {
   const [name, setName] = useState(localStorage.getItem(LS_NAME_KEY) ?? '')
-  const [room, setRoom] = useState(() => new URLSearchParams(location.search).get('room') ?? '')
+  const [room, setRoom] = useState(() =>
+    new URLSearchParams(location.search).get('room') ?? localStorage.getItem(LS_ROOM_KEY) ?? ''
+  )
   const [showScanner, setShowScanner] = useState(false)
   const canJoin = name.trim() && room.trim()
 
