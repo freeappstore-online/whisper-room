@@ -209,3 +209,9 @@ a:focus-visible {
 }
 
 } /* end @layer base */
+
+@keyframes ws-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+.ws-pulse { animation: ws-pulse 1.4s ease-in-out infinite; }

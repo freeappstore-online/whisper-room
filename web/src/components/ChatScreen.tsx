@@ -19,8 +19,8 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   const [input,          setInput]          = useState('')
   const [peerDisplay,    setPeerDisplay]    = useState<string[]>([])
   const [readyFiles,     setReadyFiles]     = useState<Record<string, string>>({})
-  const [showQR,         setShowQR]         = useState(false)
-  const [trackerBlocked, setTrackerBlocked] = useState(false)
+  const [showQR,    setShowQR]    = useState(false)
+  const [connState, setConnState] = useState<'connecting' | 'ready' | 'blocked'>('connecting')
 
   const peerNamesRef    = useRef<Map<string, string>>(new Map())
   const msgActionRef    = useRef<Action<TextPayload>    | null>(null)
@@ -33,7 +33,9 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   const { green, muted, border, textC } = themeTokens(dark)
   const onlineCount = peerDisplay.length + 1
 
-  // Probe all trackers — only warn when ALL are unreachable (e.g. public WiFi DPI block)
+  // Probe all trackers:
+  //   first success  → 'ready'   (peer discovery active)
+  //   all fail/timeout → 'blocked' (firewall / network down)
   useEffect(() => {
     const trackers = [
       'wss://tracker.webtorrent.dev',
@@ -51,15 +53,19 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
       const tick = setTimeout(() => {
         if (!mounted) return
         failed++
-        if (failed >= trackers.length) setTrackerBlocked(true)
-      }, 6000)
+        if (failed >= trackers.length) setConnState('blocked')
+      }, 5000)
       timers.push(tick)
-      ws.onopen  = () => { clearTimeout(tick); ws.close() }
+      ws.onopen = () => {
+        clearTimeout(tick)
+        ws.close()
+        if (mounted) setConnState(s => s === 'connecting' ? 'ready' : s)
+      }
       ws.onerror = () => {
         clearTimeout(tick)
         if (!mounted) return
         failed++
-        if (failed >= trackers.length) setTrackerBlocked(true)
+        if (failed >= trackers.length) setConnState('blocked')
       }
     })
 
@@ -73,7 +79,6 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
   useEffect(() => {
     const room = joinRoom({
       appId: 'whisper-room',
-      // relayConfig.urls bypasses the default 3-of-4 cut — all 3 reliable trackers used
       relayConfig: {
         urls: [
           'wss://tracker.webtorrent.dev',
@@ -81,6 +86,9 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           'wss://tracker.btorrent.xyz',
         ],
       },
+      // trickleIce: true sends the offer immediately instead of waiting up to 15s for
+      // all ICE candidates — dramatically reduces time-to-connect
+      trickleIce: true,
       rtcConfig: {
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
@@ -199,10 +207,22 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           <span style={{ fontSize: 15, fontWeight: 700, color: green, letterSpacing: '-0.01em' }}>
             #{roomId}
           </span>
-          <span style={{ fontSize: 11, color: muted, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: green, display: 'inline-block', boxShadow: `0 0 6px ${green}` }} />
-            {onlineCount} online
-          </span>
+          {connState === 'connecting' ? (
+            <span style={{ fontSize: 11, color: muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span className="ws-pulse" style={{ width: 6, height: 6, borderRadius: '50%', background: muted, display: 'inline-block' }} />
+              connecting…
+            </span>
+          ) : connState === 'blocked' ? (
+            <span style={{ fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, color: dark ? '#ff7a72' : '#c74f43' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
+              blocked
+            </span>
+          ) : (
+            <span style={{ fontSize: 11, color: muted, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: green, display: 'inline-block', boxShadow: `0 0 6px ${green}` }} />
+              {onlineCount} online
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button onClick={() => setShowQR(true)} title="Share room QR" style={{
@@ -240,7 +260,7 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
       </div>
 
       {/* firewall/tracker warning */}
-      {trackerBlocked && (
+      {connState === 'blocked' && (
         <div style={{
           padding: '7px 16px', flexShrink: 0,
           background: dark ? 'rgba(255,122,114,0.1)' : 'rgba(199,79,67,0.08)',
@@ -250,10 +270,10 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
         }}>
           <span style={{ fontSize: 11, fontFamily: 'monospace', color: dark ? '#ff7a72' : '#c74f43', lineHeight: 1.5 }}>
             ⚠ tracker blocked — this network may prevent peers from connecting.
-            use a VPN or mobile hotspot.
+            try a VPN or mobile hotspot.
           </span>
           <button
-            onClick={() => setTrackerBlocked(false)}
+            onClick={() => setConnState('ready')}
             style={{ background: 'none', border: 'none', cursor: 'pointer',
               color: dark ? '#ff7a72' : '#c74f43', fontSize: 14, lineHeight: 1, flexShrink: 0 }}
           >✕</button>
