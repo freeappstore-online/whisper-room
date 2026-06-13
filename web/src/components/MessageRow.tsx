@@ -9,9 +9,12 @@ interface Props {
   myName: string
   dark: boolean
   blobUrl?: string
+  isAccepted?: boolean
+  onAccept?: () => void
+  onReject?: () => void
 }
 
-export function MessageRow({ msg, myName, dark, blobUrl }: Props) {
+export function MessageRow({ msg, myName, dark, blobUrl, isAccepted, onAccept, onReject }: Props) {
   const { green, muted, border, textC } = themeTokens(dark)
   const isMine = msg.from === myName
 
@@ -69,7 +72,12 @@ export function MessageRow({ msg, myName, dark, blobUrl }: Props) {
         wordBreak: 'break-word', whiteSpace: msg.file ? undefined : 'pre-wrap',
       }}>
         {msg.file ? (
-          <FileOffer file={msg.file} isMine={isMine} dark={dark} blobUrl={blobUrl} />
+          <FileOffer
+              file={msg.file} isMine={isMine} dark={dark} blobUrl={blobUrl}
+              isAccepted={isAccepted}
+              onAccept={onAccept}
+              onReject={onReject}
+            />
         ) : (
           msg.text
         )}

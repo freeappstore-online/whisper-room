@@ -1,18 +1,13 @@
-export interface HelloPayload { displayName: string }
-export interface TextPayload  { text: string; displayName: string }
-export interface FilePayload  { displayName: string; file: FileInfo }
+export interface HelloPayload      { displayName: string }
+export interface TextPayload       { text: string; displayName: string }
+export interface FilePayload       { displayName: string; file: FileInfo }
+export interface FileAcceptPayload { id: string }
 
 export interface FileInfo {
   id: string
   name: string
   size: number
   mimeType?: string
-}
-
-export interface FileDataPayload {
-  id: string
-  data: ArrayBuffer
-  mimeType: string
 }
 
 export interface LocalMsg {

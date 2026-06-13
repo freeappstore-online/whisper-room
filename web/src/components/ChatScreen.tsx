@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { joinRoom, selfId } from '@trystero-p2p/torrent'
-import type { Action, HelloPayload, TextPayload, FilePayload, FileDataPayload, LocalMsg } from '../types'
+import type { Action, HelloPayload, TextPayload, FilePayload, FileAcceptPayload, LocalMsg } from '../types'
 import { peerColor } from '../utils/peers'
 import { themeTokens } from '../utils/theme'
 import { MessageRow } from './MessageRow'
@@ -14,21 +14,47 @@ interface Props {
   onToggleTheme: () => void
 }
 
-export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Props) {
-  const [messages,       setMessages]       = useState<LocalMsg[]>([])
-  const [input,          setInput]          = useState('')
-  const [peerDisplay,    setPeerDisplay]    = useState<string[]>([])
-  const [readyFiles,     setReadyFiles]     = useState<Record<string, string>>({})
-  const [showQR,    setShowQR]    = useState(false)
-  const [connState, setConnState] = useState<'connecting' | 'ready' | 'blocked'>('connecting')
+// Prefix binary payload with [4-byte id-length][id bytes][file data]
+// so the receiver can correlate the blob to the file metadata.
+function encodeFileChunk(id: string, data: ArrayBuffer): Uint8Array {
+  const idBytes = new TextEncoder().encode(id)
+  const out = new Uint8Array(4 + idBytes.length + data.byteLength)
+  new DataView(out.buffer).setUint32(0, idBytes.length, false)
+  out.set(idBytes, 4)
+  out.set(new Uint8Array(data), 4 + idBytes.length)
+  return out
+}
 
-  const peerNamesRef    = useRef<Map<string, string>>(new Map())
-  const msgActionRef    = useRef<Action<TextPayload>    | null>(null)
-  const fileActionRef   = useRef<Action<FilePayload>    | null>(null)
-  const fileDataActionRef = useRef<Action<FileDataPayload> | null>(null)
-  const fileInputRef    = useRef<HTMLInputElement>(null)
-  const blobUrlsRef     = useRef<string[]>([])
-  const bottomRef       = useRef<HTMLDivElement>(null)
+function decodeFileChunk(raw: ArrayBuffer): { id: string; data: ArrayBuffer } {
+  const view = new DataView(raw)
+  const idLen = view.getUint32(0, false)
+  const id = new TextDecoder().decode(new Uint8Array(raw, 4, idLen))
+  return { id, data: raw.slice(4 + idLen) }
+}
+
+export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Props) {
+  const [messages,      setMessages]      = useState<LocalMsg[]>([])
+  const [input,         setInput]         = useState('')
+  const [peerDisplay,   setPeerDisplay]   = useState<string[]>([])
+  const [readyFiles,    setReadyFiles]    = useState<Record<string, string>>({})
+  const [acceptedFiles, setAcceptedFiles] = useState<Set<string>>(new Set())
+  const [showQR,        setShowQR]        = useState(false)
+  const [connState,     setConnState]     = useState<'connecting' | 'ready' | 'blocked'>('connecting')
+
+  const peerNamesRef        = useRef<Map<string, string>>(new Map())
+  const msgActionRef        = useRef<Action<TextPayload> | null>(null)
+  const fileActionRef       = useRef<Action<FilePayload> | null>(null)
+  const fileDataActionRef   = useRef<Action<ArrayBuffer> | null>(null)
+  const fileAcceptActionRef = useRef<Action<FileAcceptPayload> | null>(null)
+  // Sender buffers file data until a receiver accepts
+  const localFilesRef       = useRef<Map<string, ArrayBuffer>>(new Map())
+  // Receiver stores MIME from file metadata to use when binary arrives
+  const pendingMimeRef      = useRef<Map<string, string>>(new Map())
+  // Receiver stores sender peerId to target the accept signal
+  const pendingSourceRef    = useRef<Map<string, string>>(new Map())
+  const fileInputRef        = useRef<HTMLInputElement>(null)
+  const blobUrlsRef         = useRef<string[]>([])
+  const bottomRef           = useRef<HTMLDivElement>(null)
 
   const { green, muted, border, textC } = themeTokens(dark)
   const onlineCount = peerDisplay.length + 1
@@ -105,14 +131,16 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
         },
       }, roomId)
 
-      const hello    = room.makeAction('hello')    as unknown as Action<HelloPayload>
-      const msg      = room.makeAction('msg')      as unknown as Action<TextPayload>
-      const file     = room.makeAction('file')     as unknown as Action<FilePayload>
-      const fileData = room.makeAction('fileData') as unknown as Action<FileDataPayload>
+      const hello      = room.makeAction('hello')      as unknown as Action<HelloPayload>
+      const msg        = room.makeAction('msg')        as unknown as Action<TextPayload>
+      const file       = room.makeAction('file')       as unknown as Action<FilePayload>
+      const fileData   = room.makeAction('fileData')   as unknown as Action<ArrayBuffer>
+      const fileAccept = room.makeAction('fileAccept') as unknown as Action<FileAcceptPayload>
 
-      msgActionRef.current      = msg
-      fileActionRef.current     = file
-      fileDataActionRef.current = fileData
+      msgActionRef.current        = msg
+      fileActionRef.current       = file
+      fileDataActionRef.current   = fileData
+      fileAcceptActionRef.current = fileAccept
 
       setMessages([{ id: 'sys-self', from: '', text: `joined #${roomId}`, ts: Date.now(), isSystem: true }])
 
@@ -145,28 +173,46 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
         }])
       }
 
-      file.onMessage = ({ file: f, displayName }) => {
+      file.onMessage = ({ file: f, displayName }, { peerId }) => {
+        // Store MIME and source so we can look them up when binary arrives / user accepts
+        pendingMimeRef.current.set(f.id, f.mimeType ?? 'application/octet-stream')
+        pendingSourceRef.current.set(f.id, peerId)
         setMessages(ms => [...ms, {
           id: `file-${Date.now()}-${Math.random()}`, from: displayName, text: '', ts: Date.now(), file: f,
         }])
       }
 
-      fileData.onMessage = ({ id, data, mimeType }) => {
-        const blob = new Blob([data], { type: mimeType })
+      // Binary payload: [4-byte id-length][id][file data]
+      fileData.onMessage = (raw: ArrayBuffer) => {
+        const { id, data } = decodeFileChunk(raw)
+        const mime = pendingMimeRef.current.get(id) ?? 'application/octet-stream'
+        const blob = new Blob([data], { type: mime })
         const url  = URL.createObjectURL(blob)
         blobUrlsRef.current.push(url)
         setReadyFiles(prev => ({ ...prev, [id]: url }))
+      }
+
+      // Receiver accepted — send the buffered file data only to that peer
+      fileAccept.onMessage = ({ id }, { peerId }) => {
+        const data = localFilesRef.current.get(id)
+        if (!data) return
+        const chunk = encodeFileChunk(id, data)
+        fileDataActionRef.current?.send(chunk as unknown as ArrayBuffer, { target: peerId })
       }
     }, 200)
 
     return () => {
       clearTimeout(timer)
-      msgActionRef.current      = null
-      fileActionRef.current     = null
-      fileDataActionRef.current = null
+      msgActionRef.current        = null
+      fileActionRef.current       = null
+      fileDataActionRef.current   = null
+      fileAcceptActionRef.current = null
       blobUrlsRef.current.forEach(url => URL.revokeObjectURL(url))
       blobUrlsRef.current = []
       peerNamesRef.current.clear()
+      localFilesRef.current.clear()
+      pendingMimeRef.current.clear()
+      pendingSourceRef.current.clear()
       room?.leave()
     }
   }, [roomId, myName])
@@ -189,11 +235,11 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
     const fileInfo = { id, name: f.name, size: f.size, mimeType }
     const data     = await f.arrayBuffer()
 
-    // Send metadata + raw data to peers
+    // Buffer data locally; send only when each receiver accepts
+    localFilesRef.current.set(id, data)
     await fileActionRef.current?.send({ displayName: myName, file: fileInfo })
-    await fileDataActionRef.current?.send({ id, data, mimeType })
 
-    // Sender gets local preview immediately
+    // Sender gets immediate local preview — no accept needed for own files
     const blob = new Blob([data], { type: mimeType })
     const url  = URL.createObjectURL(blob)
     blobUrlsRef.current.push(url)
@@ -313,7 +359,7 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
           </span>
         </div>
       ) : peerDisplay.length === 0 && messages.length <= 1 ? (
-        /* Phase 2 — tracker ok, waiting for first peer (no chat yet) */
+        /* Phase 2 — tracker ok, waiting for first peer */
         <div style={{
           flex: 1, display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
@@ -345,6 +391,18 @@ export function ChatScreen({ myName, roomId, dark, onLeave, onToggleTheme }: Pro
             <MessageRow
               key={m.id} msg={m} myName={myName} dark={dark}
               blobUrl={m.file ? readyFiles[m.file.id] : undefined}
+              isAccepted={m.file ? acceptedFiles.has(m.file.id) : false}
+              onAccept={m.file ? () => {
+                const peerId = pendingSourceRef.current.get(m.file!.id)
+                if (!peerId) return
+                setAcceptedFiles(prev => new Set([...prev, m.file!.id]))
+                fileAcceptActionRef.current?.send({ id: m.file!.id }, { target: peerId })
+              } : undefined}
+              onReject={m.file ? () => {
+                setMessages(ms => ms.filter(x => x.file?.id !== m.file!.id))
+                pendingMimeRef.current.delete(m.file!.id)
+                pendingSourceRef.current.delete(m.file!.id)
+              } : undefined}
             />
           ))}
           <div ref={bottomRef} />
